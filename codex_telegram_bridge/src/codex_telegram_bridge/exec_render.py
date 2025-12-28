@@ -133,7 +133,6 @@ def _maybe_parse_json(text: str) -> Optional[Any]:
 
 @dataclass
 class ExecRenderState:
-    items: dict[str, dict[str, Any]] = field(default_factory=dict)
     recent_actions: deque[str] = field(default_factory=lambda: deque(maxlen=5))
     current_action: Optional[str] = None
     current_action_id: Optional[int] = None
@@ -145,7 +144,6 @@ class ExecRenderState:
 def _record_item(state: ExecRenderState, item: dict[str, Any]) -> None:
     item_id = item.get("id")
     if isinstance(item_id, (int, str)):
-        state.items[str(item_id)] = item
         numeric_id = _extract_numeric_id(item_id)
         if numeric_id is not None:
             state.last_turn = numeric_id
@@ -186,7 +184,6 @@ def render_event_cli(
     event: dict[str, Any],
     state: ExecRenderState,
     *,
-    show_reasoning: bool = False,
     show_output: bool = False,
 ) -> list[str]:
     etype = event.get("type")
@@ -224,11 +221,6 @@ def render_event_cli(
             else:
                 lines.append("assistant:")
                 lines.extend(indent(text, "  ").splitlines() if text else ["  (empty)"])
-
-        elif itype == "reasoning" and show_reasoning:
-            reasoning = _format_reasoning(item.get("text", ""))
-            if reasoning:
-                lines.append(reasoning)
 
         elif itype == "command_execution":
             command = _format_command(item.get("command", ""))

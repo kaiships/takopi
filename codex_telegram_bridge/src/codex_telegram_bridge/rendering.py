@@ -6,9 +6,6 @@ from typing import Any, Dict, List, Tuple
 from markdown_it import MarkdownIt
 from sulguk import transform_html
 
-from .constants import DEFAULT_CHUNK_LEN
-
-
 def render_markdown(md: str) -> Tuple[str, List[Dict[str, Any]]]:
     html = MarkdownIt("commonmark", {"html": False}).render(md or "")
     rendered = transform_html(html)
@@ -23,41 +20,6 @@ def render_markdown(md: str) -> Tuple[str, List[Dict[str, Any]]]:
             d.pop("language", None)
         entities.append(d)
     return text, entities
-
-
-def chunk_text(text: str, limit: int = DEFAULT_CHUNK_LEN) -> List[str]:
-    """
-    Telegram hard limit is 4096 chars. Chunk at newlines when possible.
-    """
-    text = text or ""
-    if len(text) <= limit:
-        return [text]
-
-    out: List[str] = []
-    buf: List[str] = []
-    size = 0
-
-    for line in text.splitlines(keepends=True):
-        if len(line) > limit:
-            # flush current buffer
-            if buf:
-                out.append("".join(buf))
-                buf, size = [], 0
-            # hard-split this long line
-            for i in range(0, len(line), limit):
-                out.append(line[i : i + limit])
-            continue
-
-        if size + len(line) > limit:
-            out.append("".join(buf))
-            buf, size = [line], len(line)
-        else:
-            buf.append(line)
-            size += len(line)
-
-    if buf:
-        out.append("".join(buf))
-    return out
 
 
 def _chunk_text_with_indices(text: str, limit: int) -> List[Tuple[str, int, int]]:

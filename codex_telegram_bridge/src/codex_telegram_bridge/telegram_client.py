@@ -6,7 +6,7 @@ import urllib.request
 from typing import Any, Dict, List, Optional
 
 from .constants import DEFAULT_CHUNK_LEN, TELEGRAM_HARD_LIMIT
-from .rendering import chunk_text, render_markdown, _chunk_text_with_indices, _slice_entities
+from .rendering import render_markdown, _chunk_text_with_indices, _slice_entities
 
 
 class TelegramClient:
@@ -102,26 +102,6 @@ class TelegramClient:
         }
         res = self._call("deleteMessage", params)
         return bool(res)
-
-    def send_message_chunked(
-        self,
-        chat_id: int,
-        text: str,
-        reply_to_message_id: Optional[int] = None,
-        disable_notification: bool = False,
-        chunk_len: int = DEFAULT_CHUNK_LEN,
-    ) -> List[Dict[str, Any]]:
-        sent: List[Dict[str, Any]] = []
-        chunks = chunk_text(text, limit=chunk_len)
-        for i, c in enumerate(chunks):
-            msg = self.send_message(
-                chat_id=chat_id,
-                text=c,
-                reply_to_message_id=(reply_to_message_id if i == 0 else None),
-                disable_notification=disable_notification,
-            )
-            sent.append(msg)
-        return sent
 
     def send_message_markdown_chunked(
         self,
