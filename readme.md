@@ -16,23 +16,23 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 
 ### Prerequisites
 
-- Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
 - Codex CLI on PATH
 
 ### Installation
 
 ```bash
-# Clone and enter the directory
-cd takopi
+# Install with uv, then run as `takopi`
+uv tool install takopi
+takopi
 
-# Run directly with uv (installs deps automatically)
-uv run takopi --help
+# or run with uvx
+uvx takopi
 ```
 
 ### Configuration
 
-Create `~/.codex/takopi.toml` (or `./.codex/takopi.toml` for a repo-local config):
+Create `~/.codex/takopi.toml` (or `.codex/takopi.toml` for a repo-local config):
 
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
@@ -52,7 +52,7 @@ Create a Codex profile in `~/.codex/config.toml`:
 
 ```toml
 [profiles.takopi]
-model = "gpt-4.1"
+model = "gpt-5.2-codex"
 ```
 
 Then run takopi with:
@@ -116,15 +116,7 @@ Running two bridge processes with the same bot token will cause them to compete 
 
 ## Development
 
-See [`developing.md`](developing.md) for architecture details.
-
-```bash
-# Run tests
-uv run pytest
-
-# Run with debug logging
-uv run takopi --debug 2>&1 | tee debug.log
-```
+See [`developing.md`](developing.md).
 
 ## License
 

@@ -2,6 +2,21 @@
 
 This document describes the internal architecture and module responsibilities.
 
+## Development Setup
+
+```bash
+# Clone and enter the directory
+git clone https://github.com/banteg/takopi
+cd takopi
+
+# Run directly with uv (installs deps automatically)
+uv run takopi --help
+
+# Or install locally from the repo to test outside the repo
+uv tool install .
+takopi --help
+```
+
 ## Module Responsibilities
 
 ### `exec_bridge.py` — Main Entry Point
