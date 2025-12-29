@@ -19,7 +19,6 @@ from weakref import WeakValueDictionary
 import typer
 
 from .config import load_telegram_config
-from .constants import TELEGRAM_HARD_LIMIT
 from .exec_render import ExecProgressRenderer, render_event_cli
 from .logging import setup_logging
 from .rendering import render_markdown
@@ -72,11 +71,10 @@ async def manage_subprocess(*args, **kwargs):
                 await proc.wait()
 
 
-TELEGRAM_TEXT_LIMIT = TELEGRAM_HARD_LIMIT
 TELEGRAM_MARKDOWN_LIMIT = 3500
 
 
-def _clamp_tg_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> str:
+def _clamp_tg_text(text: str, limit: int = TELEGRAM_MARKDOWN_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 20] + "\n...(truncated)"
@@ -139,11 +137,10 @@ async def _send_or_edit_markdown(
     edit_message_id: int | None = None,
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
-    edit_limit: int = TELEGRAM_TEXT_LIMIT,
-    send_limit: int = TELEGRAM_MARKDOWN_LIMIT,
+    limit: int = TELEGRAM_MARKDOWN_LIMIT,
 ) -> tuple[dict[str, Any], bool]:
     if edit_message_id is not None:
-        rendered, entities = prepare_telegram(text, limit=edit_limit)
+        rendered, entities = prepare_telegram(text, limit=limit)
         try:
             return (
                 await bot.edit_message_text(
@@ -162,7 +159,7 @@ async def _send_or_edit_markdown(
                 e,
             )
 
-    rendered, entities = prepare_telegram(text, limit=send_limit)
+    rendered, entities = prepare_telegram(text, limit=limit)
     return (
         await bot.send_message(
             chat_id=chat_id,
@@ -459,7 +456,7 @@ async def _handle_message(
     async def _edit_progress(md: str) -> None:
         if progress_id is None:
             return
-        rendered, entities = prepare_telegram(md, limit=TELEGRAM_TEXT_LIMIT)
+        rendered, entities = prepare_telegram(md, limit=TELEGRAM_MARKDOWN_LIMIT)
         logger.debug(
             "[progress] edit message_id=%s md=%s rendered=%s entities=%s",
             progress_id,
@@ -485,7 +482,7 @@ async def _handle_message(
     try:
         initial_md = progress_renderer.render_progress(0.0)
         initial_rendered, initial_entities = prepare_telegram(
-            initial_md, limit=TELEGRAM_TEXT_LIMIT
+            initial_md, limit=TELEGRAM_MARKDOWN_LIMIT
         )
         logger.debug(
             "[progress] send reply_to=%s md=%s rendered=%s entities=%s",
@@ -544,8 +541,7 @@ async def _handle_message(
                 edit_message_id=progress_id,
                 reply_to_message_id=user_msg_id,
                 disable_notification=True,
-                edit_limit=TELEGRAM_TEXT_LIMIT,
-                send_limit=TELEGRAM_MARKDOWN_LIMIT,
+                limit=TELEGRAM_MARKDOWN_LIMIT,
             )
             return
 
@@ -561,7 +557,9 @@ async def _handle_message(
     )
     logger.debug("[final] markdown: %s", final_md)
     final_rendered, final_entities = render_markdown(final_md)
-    can_edit_final = progress_id is not None and len(final_rendered) <= TELEGRAM_TEXT_LIMIT
+    can_edit_final = (
+        progress_id is not None and len(final_rendered) <= TELEGRAM_MARKDOWN_LIMIT
+    )
     edit_message_id = None if cfg.final_notify or not can_edit_final else progress_id
 
     if edit_message_id is None:
@@ -586,8 +584,7 @@ async def _handle_message(
         edit_message_id=edit_message_id,
         reply_to_message_id=user_msg_id,
         disable_notification=False,
-        edit_limit=TELEGRAM_TEXT_LIMIT,
-        send_limit=TELEGRAM_MARKDOWN_LIMIT,
+        limit=TELEGRAM_MARKDOWN_LIMIT,
     )
     if progress_id is not None and (edit_message_id is None or not edited):
         try:
