@@ -2,7 +2,7 @@
 
 > 🐙 A little helper from Happy Planet, here to make your Codex sessions happier-pi!
 
-A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex) sessions using non-interactive `codex exec` and `codex exec resume`.
+A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex) sessions using non-interactive `codex exec --json`.
 
 ## Features
 
@@ -42,7 +42,7 @@ chat_id = 123456789
 | Key | Description |
 |-----|-------------|
 | `bot_token` | Telegram Bot API token from [@BotFather](https://t.me/BotFather) |
-| `chat_id` | Allowed chat ID (also used for startup notifications) |
+| `chat_id` | Your Telegram user ID from [@myidbot](https://t.me/myidbot) |
 
 The bridge only accepts messages where the chat ID equals the sender ID and both match `chat_id` (i.e., private chat with that user).
 
@@ -58,16 +58,10 @@ model = "gpt-5.2-codex"
 Then run takopi with:
 
 ```bash
-uv run takopi --profile takopi
+takopi --profile takopi
 ```
 
-### Running
-
-```bash
-uv run takopi
-```
-
-#### Options
+### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -95,24 +89,12 @@ Reply to a bot message (containing `resume: <uuid>`), or include the resume line
 resume: `019b66fc-64c2-7a71-81cd-081c504cfeb2`
 ```
 
-## Behavior Notes
+## Notes
 
 - **Startup**: Pending updates are drained (ignored) on startup
 - **Progress**: Updates are throttled to ~2s intervals, sent silently
-- **Notifications**: Codex's built-in notify is disabled (bridge handles it)
 - **Filtering**: Only accepts messages where chat ID equals sender ID and matches `chat_id`
-
-## Operational Notes
-
-### Single consumer: do not run multiple instances per bot token
-
-Run exactly one instance per bot token.
-
-This bridge uses Telegram's `getUpdates` long-polling. Telegram stores incoming updates in a
-single queue per bot and considers an update confirmed once a client calls `getUpdates` with an
-`offset` higher than the update's `update_id` (see the [Telegram Bot API](https://core.telegram.org/bots/api)).
-Running two bridge processes with the same bot token will cause them to compete for updates
-(duplicates and/or missed messages).
+- **Single instance**: Run exactly one instance per bot token—multiple instances will race for updates
 
 ## Development
 
