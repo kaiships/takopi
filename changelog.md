@@ -4,12 +4,12 @@
 
 ### changes
 
-- introduce runner protocol for multi-engine support #8
+- introduce runner protocol for multi-engine support [#7](https://github.com/banteg/takopi/pull/7)
   - normalized event model (`started`, `action`, `completed`)
   - actions with stable ids, lifecycle phases, and structured details
   - engine-agnostic bridge and renderer
-- add `/cancel` command with progress message targeting #4
-- migrate async runtime from asyncio to anyio #6
+- add `/cancel` command with progress message targeting [#4](https://github.com/banteg/takopi/pull/4)
+- migrate async runtime from asyncio to anyio [#6](https://github.com/banteg/takopi/pull/6)
 - stream runner events via async iterators (natural backpressure)
 - per-thread job queues with serialization for same-thread runs
 - emit `completed` as terminal event (carries resume + final answer)
@@ -23,8 +23,8 @@
 ### fixes
 
 - serialize new sessions once resume token is known
-- preserve resume tokens in error renders #3
-- preserve file-change paths in action events #2
+- preserve resume tokens in error renders [#3](https://github.com/banteg/takopi/pull/3)
+- preserve file-change paths in action events [#2](https://github.com/banteg/takopi/pull/2)
 - terminate codex process groups on cancel (POSIX)
 - correct resume command matching in bridge
 
