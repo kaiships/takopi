@@ -2,7 +2,7 @@
 
 🐙 *he just wants to help-pi*
 
-telegram bridge for codex and claude code. runs the agent cli, streams progress, and supports resumable sessions.
+telegram bridge for codex, claude code, and [other agents](docs/adding-a-runner.md). runs the agent cli, streams progress, and supports resumable sessions.
 
 ## features
 
@@ -40,6 +40,8 @@ parallel runs across threads, per thread queue support.
 global config `~/.takopi/takopi.toml`, repo-level config `.takopi/takopi.toml`
 
 ```toml
+default_engine = "codex"
+
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 
@@ -61,12 +63,16 @@ start takopi in the repo you want to work on:
 
 ```sh
 cd ~/dev/your-repo
-takopi codex
-# or
+takopi
+# or override the default engine for new threads:
 takopi claude
 ```
 
+resume lines always route to the matching engine; subcommands only override the default for new threads.
+
 send a message to the bot.
+
+start a new thread with a specific engine by prefixing your message with `/codex` or `/claude`.
 
 to continue a thread, reply to a bot message containing a resume line.
 you can also copy it to resume an interactive session in your terminal.

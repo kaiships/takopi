@@ -26,6 +26,9 @@ uv run ty check .
 make check
 ```
 
+Takopi runs in **auto-router** mode by default. `default_engine` in `takopi.toml` selects
+the engine for new threads; engine subcommands override that default for the process.
+
 ## Module Responsibilities
 
 ### `bridge.py` - Telegram bridge loop
@@ -44,9 +47,11 @@ The orchestrator module containing:
 **Key patterns:**
 - Bridge schedules runs FIFO per thread to avoid concurrent progress messages; runner locks enforce per-thread serialization
 - `/cancel` routes by reply-to progress message id (accepts extra text)
-- Progress edits are throttled to ~1s intervals and only run when new events arrive
+- `/{engine}` on the first line selects the engine for new threads
+- Progress edits are throttled to 2s intervals and only run when new events arrive
 - Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``)
-- Resume parsing is delegated to the active runner (no cross-engine fallback)
+- Resume parsing polls all runners via `AutoRouter.resolve_resume()` and routes to the first match
+- Bot command menu is synced on startup (`cancel` + engine commands)
 
 ### `cli.py` - CLI entry point
 
@@ -164,12 +169,16 @@ poll_updates() drains backlog, long-polls, filters chat_id == from_id == cfg.cha
     ↓
 run_main_loop() spawns tasks in TaskGroup
     ↓
-handle_message() spawned as task
+router.resolve_resume(text, reply_text) → ResumeToken | None
+    ↓
+router.runner_for(resume_token) → selects runner (default engine if None)
+    ↓
+handle_message() spawned as task with selected runner
     ↓
 Send initial progress message (silent)
     ↓
-CodexRunner.run()
-    ├── Spawns: codex exec --json ... -
+runner.run(prompt, resume_token)
+    ├── Spawns engine subprocess (e.g., codex exec --json)
     ├── Streams JSONL from stdout
     ├── Normalizes JSONL -> takopi events
     ├── Yields Takopi events (async iterator)
@@ -186,10 +195,10 @@ Send/edit final message
 
 ### Resume Flow
 
-Same as above, but:
-- Runners parse resume lines (e.g. `` `codex resume <token>` ``)
-- Command becomes: `codex exec --json resume <token> -`
-- Per-token lock serializes concurrent resumes
+Same as above; auto-router polls all runners to extract resume tokens:
+- Router returns first matching token (e.g. `` `claude --resume <id>` `` routes to Claude)
+- Selected runner spawns with resume (e.g. `codex exec --json resume <token> -`)
+- Per-token lock serializes concurrent resumes on the same thread
 
 ## Error Handling
 

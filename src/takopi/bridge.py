@@ -1,4 +1,4 @@
-"""Telegram bridge orchestration for running a single runner and streaming progress."""
+"""Telegram bridge orchestration for running runners and streaming progress."""
 
 from __future__ import annotations
 
@@ -12,19 +12,14 @@ from typing import Any
 import anyio
 
 from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram
-from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
+from .model import CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
 from .render import ExecProgressRenderer, render_event_cli
+from .router import AutoRouter, RunnerUnavailableError
 from .runner import Runner
 from .telegram import BotClient
 
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_resume(
-    runner: Runner, text: str | None, reply_text: str | None
-) -> ResumeToken | None:
-    return runner.extract_resume(text) or runner.extract_resume(reply_text)
 
 
 def _log_runner_event(evt: TakopiEvent) -> None:
@@ -45,6 +40,73 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
+def _strip_engine_command(
+    text: str, *, engine_ids: tuple[EngineId, ...]
+) -> tuple[str, EngineId | None]:
+    if not text:
+        return text, None
+
+    if not engine_ids:
+        return text, None
+
+    engine_map = {engine.lower(): engine for engine in engine_ids}
+    lines = text.splitlines()
+    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if idx is None:
+        return text, None
+
+    line = lines[idx].lstrip()
+    if not line.startswith("/"):
+        return text, None
+
+    parts = line.split(maxsplit=1)
+    command = parts[0][1:]
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    engine = engine_map.get(command.lower())
+    if engine is None:
+        return text, None
+
+    remainder = parts[1] if len(parts) > 1 else ""
+    if remainder:
+        lines[idx] = remainder
+    else:
+        lines.pop(idx)
+    return "\n".join(lines).strip(), engine
+
+
+def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
+    commands: list[dict[str, str]] = [
+        {"command": "cancel", "description": "cancel run"}
+    ]
+    seen = {"cancel"}
+    for engine in router.engine_ids:
+        cmd = engine.lower()
+        if cmd in seen:
+            continue
+        commands.append({"command": cmd, "description": f"start {cmd}"})
+        seen.add(cmd)
+    return commands
+
+
+async def _set_command_menu(cfg: BridgeConfig) -> None:
+    commands = _build_bot_commands(cfg.router)
+    if not commands:
+        return
+    try:
+        ok = await cfg.bot.set_my_commands(commands)
+    except Exception as exc:
+        logger.info("[startup] command menu update failed: %s", exc)
+        return
+    if not ok:
+        logger.info("[startup] command menu update rejected")
+        return
+    logger.info(
+        "[startup] command menu updated commands=%s",
+        ", ".join(cmd["command"] for cmd in commands),
+    )
+
+
 def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> str:
     stripped_lines: list[str] = []
     for line in text.splitlines():
@@ -53,6 +115,34 @@ def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> 
         stripped_lines.append(line)
     prompt = "\n".join(stripped_lines).strip()
     return prompt or "continue"
+
+
+def _flatten_exception_group(error: BaseException) -> list[BaseException]:
+    if isinstance(error, BaseExceptionGroup):
+        flattened: list[BaseException] = []
+        for exc in error.exceptions:
+            flattened.extend(_flatten_exception_group(exc))
+        return flattened
+    return [error]
+
+
+def _format_error(error: Exception) -> str:
+    cancel_exc = anyio.get_cancelled_exc_class()
+    flattened = [
+        exc
+        for exc in _flatten_exception_group(error)
+        if not isinstance(exc, cancel_exc)
+    ]
+    if len(flattened) == 1:
+        return str(flattened[0]) or flattened[0].__class__.__name__
+    if not flattened:
+        return str(error) or error.__class__.__name__
+    messages = [str(exc) for exc in flattened if str(exc)]
+    if not messages:
+        return str(error) or error.__class__.__name__
+    if len(messages) == 1:
+        return messages[0]
+    return "\n".join(messages)
 
 
 PROGRESS_EDIT_EVERY_S = 2.0
@@ -187,7 +277,7 @@ class ProgressEdits:
 @dataclass(frozen=True)
 class BridgeConfig:
     bot: BotClient
-    runner: Runner
+    router: AutoRouter
     chat_id: int
     final_notify: bool
     startup_msg: str
@@ -376,10 +466,12 @@ async def send_result_message(
 async def handle_message(
     cfg: BridgeConfig,
     *,
+    runner: Runner,
     chat_id: int,
     user_msg_id: int,
     text: str,
     resume_token: ResumeToken | None,
+    strip_resume_line: Callable[[str], bool] | None = None,
     running_tasks: dict[int, RunningTask] | None = None,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
     | None = None,
@@ -395,9 +487,9 @@ async def handle_message(
         text,
     )
     started_at = clock()
-    runner = cfg.runner
     is_resume_line = runner.is_resume_line
-    runner_text = _strip_resume_lines(text, is_resume_line=is_resume_line)
+    resume_strip = strip_resume_line or is_resume_line
+    runner_text = _strip_resume_lines(text, is_resume_line=resume_strip)
 
     progress_renderer = ExecProgressRenderer(
         max_actions=5, resume_formatter=runner.format_resume
@@ -464,6 +556,7 @@ async def handle_message(
             )
         except Exception as e:
             error = e
+            logger.exception("[handle] runner failed")
         finally:
             if (
                 running_task is not None
@@ -481,7 +574,7 @@ async def handle_message(
 
     if error is not None:
         sync_resume_token(progress_renderer, outcome.resume)
-        err_body = str(error)
+        err_body = _format_error(error)
         final_md = progress_renderer.render_final(elapsed, err_body, status="error")
         logger.debug("[error] markdown: %s", final_md)
         await send_result_message(
@@ -681,6 +774,32 @@ async def _send_with_resume(
     await enqueue(chat_id, user_msg_id, text, resume)
 
 
+async def _send_runner_unavailable(
+    cfg: BridgeConfig,
+    *,
+    chat_id: int,
+    user_msg_id: int,
+    resume_token: ResumeToken | None,
+    runner: Runner,
+    reason: str,
+) -> None:
+    progress_renderer = ExecProgressRenderer(
+        max_actions=0, resume_formatter=runner.format_resume
+    )
+    if resume_token is not None:
+        progress_renderer.resume_token = resume_token
+    final_md = progress_renderer.render_final(0.0, f"Error:\n{reason}", status="error")
+    await _send_or_edit_markdown(
+        cfg.bot,
+        chat_id=chat_id,
+        text=final_md,
+        reply_to_message_id=user_msg_id,
+        disable_notification=False,
+        limit=TELEGRAM_MARKDOWN_LIMIT,
+        is_resume_line=runner.is_resume_line,
+    )
+
+
 async def run_main_loop(
     cfg: BridgeConfig,
     poller: Callable[[BridgeConfig], AsyncIterator[dict[str, Any]]] = poll_updates,
@@ -688,6 +807,7 @@ async def run_main_loop(
     running_tasks: dict[int, RunningTask] = {}
 
     try:
+        await _set_command_menu(cfg)
         async with anyio.create_task_group() as tg:
             scheduler_lock = anyio.Lock()
 
@@ -726,14 +846,44 @@ async def run_main_loop(
                 resume_token: ResumeToken | None,
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
+                engine_override: EngineId | None = None,
             ) -> None:
                 try:
+                    try:
+                        entry = (
+                            cfg.router.entry_for_engine(engine_override)
+                            if resume_token is None
+                            else cfg.router.entry_for(resume_token)
+                        )
+                    except RunnerUnavailableError as exc:
+                        await _send_or_edit_markdown(
+                            cfg.bot,
+                            chat_id=chat_id,
+                            text=f"Error:\n{exc}",
+                            reply_to_message_id=user_msg_id,
+                            disable_notification=False,
+                            limit=TELEGRAM_MARKDOWN_LIMIT,
+                        )
+                        return
+                    if not entry.available:
+                        reason = entry.issue or "engine unavailable"
+                        await _send_runner_unavailable(
+                            cfg,
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            resume_token=resume_token,
+                            runner=entry.runner,
+                            reason=reason,
+                        )
+                        return
                     await handle_message(
                         cfg,
+                        runner=entry.runner,
                         chat_id=chat_id,
                         user_msg_id=user_msg_id,
                         text=text,
                         resume_token=resume_token,
+                        strip_resume_line=cfg.router.is_resume_line,
                         running_tasks=running_tasks,
                         on_thread_known=on_thread_known,
                         progress_edit_every=cfg.progress_edit_every,
@@ -799,8 +949,12 @@ async def run_main_loop(
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
 
+                text, engine_override = _strip_engine_command(
+                    text, engine_ids=cfg.router.engine_ids
+                )
+
                 r = msg.get("reply_to_message") or {}
-                resume_token = _resolve_resume(cfg.runner, text, r.get("text"))
+                resume_token = cfg.router.resolve_resume(text, r.get("text"))
                 reply_id = r.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(int(reply_id))
@@ -824,6 +978,7 @@ async def run_main_loop(
                         text,
                         None,
                         note_thread_known,
+                        engine_override,
                     )
                 else:
                     await enqueue(msg["chat"]["id"], user_msg_id, text, resume_token)

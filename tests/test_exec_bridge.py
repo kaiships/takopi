@@ -3,14 +3,22 @@ import uuid
 import anyio
 import pytest
 
-from takopi import engines
+from takopi.bridge import _build_bot_commands, _strip_engine_command
 from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import EngineId, ResumeToken, TakopiEvent
+from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 from tests.factories import action_completed, action_started
 
 CODEX_ENGINE = EngineId("codex")
+
+
+def _make_router(runner) -> AutoRouter:
+    return AutoRouter(
+        entries=[RunnerEntry(engine=runner.engine, runner=runner)],
+        default_engine=runner.engine,
+    )
 
 
 def _patch_config(monkeypatch, config):
@@ -33,7 +41,7 @@ def test_parse_bridge_config_rejects_empty_token(monkeypatch) -> None:
     with pytest.raises(cli.ConfigError, match="bot_token"):
         cli._parse_bridge_config(
             final_notify=True,
-            backend=engines.get_backend("codex"),
+            default_engine_override=None,
         )
 
 
@@ -45,7 +53,7 @@ def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
     with pytest.raises(cli.ConfigError, match="chat_id"):
         cli._parse_bridge_config(
             final_notify=True,
-            backend=engines.get_backend("codex"),
+            default_engine_override=None,
         )
 
 
@@ -114,6 +122,55 @@ def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
     assert out.rstrip().endswith("last line")
 
 
+def test_strip_engine_command_inline() -> None:
+    text, engine = _strip_engine_command(
+        "/claude do it", engine_ids=("codex", "claude")
+    )
+    assert engine == "claude"
+    assert text == "do it"
+
+
+def test_strip_engine_command_newline() -> None:
+    text, engine = _strip_engine_command(
+        "/codex\nhello", engine_ids=("codex", "claude")
+    )
+    assert engine == "codex"
+    assert text == "hello"
+
+
+def test_strip_engine_command_ignores_unknown() -> None:
+    text, engine = _strip_engine_command("/unknown hi", engine_ids=("codex", "claude"))
+    assert engine is None
+    assert text == "/unknown hi"
+
+
+def test_strip_engine_command_bot_suffix() -> None:
+    text, engine = _strip_engine_command(
+        "/claude@bunny_agent_bot hi", engine_ids=("claude",)
+    )
+    assert engine == "claude"
+    assert text == "hi"
+
+
+def test_strip_engine_command_only_first_non_empty_line() -> None:
+    text, engine = _strip_engine_command(
+        "hello\n/claude hi", engine_ids=("codex", "claude")
+    )
+    assert engine is None
+    assert text == "hello\n/claude hi"
+
+
+def test_build_bot_commands_includes_cancel_and_engine() -> None:
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    router = _make_router(runner)
+    commands = _build_bot_commands(router)
+
+    assert {"command": "cancel", "description": "cancel run"} in commands
+    assert any(cmd["command"] == "codex" for cmd in commands)
+
+
 def test_prepare_telegram_drops_entities_on_truncate() -> None:
     md = ("**bold** " * 200).strip()
 
@@ -126,6 +183,7 @@ def test_prepare_telegram_drops_entities_on_truncate() -> None:
 class _FakeBot:
     def __init__(self) -> None:
         self._next_id = 1
+        self.command_calls: list[dict] = []
         self.send_calls: list[dict] = []
         self.edit_calls: list[dict] = []
         self.delete_calls: list[dict] = []
@@ -174,6 +232,22 @@ class _FakeBot:
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool:
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
+        return True
+
+    async def set_my_commands(
+        self,
+        commands: list[dict],
+        *,
+        scope: dict | None = None,
+        language_code: str | None = None,
+    ) -> bool:
+        self.command_calls.append(
+            {
+                "commands": commands,
+                "scope": scope,
+                "language_code": language_code,
+            }
+        )
         return True
 
     async def get_updates(
@@ -238,7 +312,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -246,6 +320,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
 
     await handle_message(
         cfg,
+        runner=runner,
         chat_id=123,
         user_msg_id=10,
         text="hi",
@@ -265,7 +340,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -275,6 +350,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
 
     await handle_message(
         cfg,
+        runner=runner,
         chat_id=123,
         user_msg_id=10,
         text=text,
@@ -295,7 +371,7 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
     runner = _return_runner(answer="x" * 10_000)
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=False,
         startup_msg="",
@@ -303,6 +379,7 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
 
     await handle_message(
         cfg,
+        runner=runner,
         chat_id=123,
         user_msg_id=10,
         text="hi",
@@ -336,7 +413,7 @@ async def test_progress_edits_are_rate_limited() -> None:
     )
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -344,6 +421,7 @@ async def test_progress_edits_are_rate_limited() -> None:
 
     await handle_message(
         cfg,
+        runner=runner,
         chat_id=123,
         user_msg_id=10,
         text="hi",
@@ -380,7 +458,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
     )
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -389,6 +467,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
     async def run_handle_message() -> None:
         await handle_message(
             cfg,
+            runner=runner,
             chat_id=123,
             user_msg_id=10,
             text="hi",
@@ -455,7 +534,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     )
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -463,6 +542,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
 
     await handle_message(
         cfg,
+        runner=runner,
         chat_id=123,
         user_msg_id=42,
         text="do it",
@@ -488,7 +568,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -510,7 +590,7 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -536,7 +616,7 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -563,7 +643,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -593,7 +673,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -638,7 +718,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     )
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -648,6 +728,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     async def run_handle_message() -> None:
         await handle_message(
             cfg,
+            runner=runner,
             chat_id=123,
             user_msg_id=10,
             text="do something",
@@ -687,7 +768,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
     )
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -695,6 +776,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
 
     await handle_message(
         cfg,
+        runner=runner,
         chat_id=123,
         user_msg_id=10,
         text="do something",
@@ -817,7 +899,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
     )
     cfg = BridgeConfig(
         bot=bot,
-        runner=runner,
+        router=_make_router(runner),
         chat_id=123,
         final_notify=True,
         startup_msg="",
