@@ -8,6 +8,7 @@ from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.render import MarkdownParts, prepare_telegram
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.codex import CodexRunner
+from takopi.telegram import TelegramClient
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 from tests.factories import action_completed, action_started
 
@@ -189,7 +190,10 @@ class _FakeBot:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        *,
+        replace_message_id: int | None = None,
     ) -> dict:
+        _ = replace_message_id
         self.send_calls.append(
             {
                 "chat_id": chat_id,
@@ -211,7 +215,10 @@ class _FakeBot:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        *,
+        wait: bool = True,
     ) -> dict:
+        _ = wait
         self.edit_calls.append(
             {
                 "chat_id": chat_id,
@@ -223,7 +230,11 @@ class _FakeBot:
         )
         return {"message_id": message_id}
 
-    async def delete_message(self, chat_id: int, message_id: int) -> bool:
+    async def delete_message(
+        self,
+        chat_id: int,
+        message_id: int,
+    ) -> bool:
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
         return True
 
@@ -281,13 +292,31 @@ class _FakeClock:
             self._sleep_event = None
 
     async def sleep(self, delay: float) -> None:
-        self.sleep_calls += 1
         if delay <= 0:
             await anyio.sleep(0)
             return
+        self.sleep_calls += 1
         self._sleep_until = self._now + delay
         self._sleep_event = anyio.Event()
         await self._sleep_event.wait()
+
+
+def _queued_bot(
+    bot: "_FakeBot", *, clock: "_FakeClock | None" = None
+) -> TelegramClient:
+    if clock is None:
+        return TelegramClient(
+            client=bot,
+            private_chat_rps=0.0,
+            group_chat_rps=0.0,
+        )
+    return TelegramClient(
+        client=bot,
+        clock=clock,
+        sleep=clock.sleep,
+        private_chat_rps=0.0,
+        group_chat_rps=0.0,
+    )
 
 
 def _return_runner(
@@ -307,7 +336,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -335,7 +364,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
     bot = _FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -366,7 +395,7 @@ async def test_long_final_message_edits_progress_message() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="x" * 10_000)
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=False,
@@ -384,7 +413,8 @@ async def test_long_final_message_edits_progress_message() -> None:
 
     assert len(bot.send_calls) == 1
     assert bot.send_calls[0]["disable_notification"] is True
-    assert len(bot.edit_calls) == 1
+    assert bot.edit_calls
+    assert "done" in bot.edit_calls[-1]["text"].lower()
 
 
 @pytest.mark.anyio
@@ -408,7 +438,7 @@ async def test_progress_edits_are_rate_limited() -> None:
         advance=clock.set,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot, clock=clock),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -423,12 +453,10 @@ async def test_progress_edits_are_rate_limited() -> None:
         text="hi",
         resume_token=None,
         clock=clock,
-        sleep=clock.sleep,
-        progress_edit_every=1.0,
     )
 
-    assert len(bot.edit_calls) == 1
-    assert "echo 2" in bot.edit_calls[0]["text"]
+    assert bot.edit_calls
+    assert "working" in bot.edit_calls[-1]["text"].lower()
 
 
 @pytest.mark.anyio
@@ -453,7 +481,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
         advance=clock.set,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot, clock=clock),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -469,33 +497,18 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
             text="hi",
             resume_token=None,
             clock=clock,
-            sleep=clock.sleep,
-            progress_edit_every=1.0,
         )
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_handle_message)
 
         for _ in range(100):
-            if clock._sleep_until is not None:
-                break
-            await anyio.sleep(0)
-
-        assert clock._sleep_until == pytest.approx(1.0)
-
-        clock.set(1.0)
-
-        for _ in range(100):
             if bot.edit_calls:
                 break
             await anyio.sleep(0)
 
-        assert len(bot.edit_calls) == 1
-
-        for _ in range(5):
-            await anyio.sleep(0)
-
-        assert clock.sleep_calls == 1
+        assert bot.edit_calls
+        assert clock.sleep_calls == 0
         assert clock._sleep_until is None
 
         hold.set()
@@ -529,7 +542,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         resume_value=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot, clock=clock),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -544,8 +557,6 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         text="do it",
         resume_token=None,
         clock=clock,
-        sleep=clock.sleep,
-        progress_edit_every=1.0,
     )
 
     assert bot.send_calls[0]["reply_to_message_id"] == 42
@@ -564,7 +575,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -586,7 +597,7 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -612,7 +623,7 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -639,7 +650,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -669,7 +680,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -714,7 +725,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
         resume_value=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -764,7 +775,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
         resume_value=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -873,6 +884,8 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             disable_notification: bool | None = False,
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
+            *,
+            replace_message_id: int | None = None,
         ) -> dict:
             msg = await super().send_message(
                 chat_id=chat_id,
@@ -881,6 +894,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
                 disable_notification=disable_notification,
                 entities=entities,
                 parse_mode=parse_mode,
+                replace_message_id=replace_message_id,
             )
             if self.progress_id is None and reply_to_message_id is not None:
                 self.progress_id = int(msg["message_id"])
@@ -895,7 +909,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         resume_value=resume_value,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,

@@ -154,9 +154,6 @@ def _format_error(error: Exception) -> str:
     return "\n".join(messages)
 
 
-PROGRESS_EDIT_EVERY_S = 2.0
-
-
 async def _send_or_edit_markdown(
     bot: BotClient,
     *,
@@ -164,6 +161,7 @@ async def _send_or_edit_markdown(
     parts: MarkdownParts,
     edit_message_id: int | None = None,
     reply_to_message_id: int | None = None,
+    replace_message_id: int | None = None,
     disable_notification: bool = False,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
@@ -200,6 +198,7 @@ async def _send_or_edit_markdown(
             entities=entities,
             reply_to_message_id=reply_to_message_id,
             disable_notification=disable_notification,
+            replace_message_id=replace_message_id,
         ),
         False,
     )
@@ -214,10 +213,7 @@ class ProgressEdits:
         progress_id: int | None,
         renderer: ExecProgressRenderer,
         started_at: float,
-        progress_edit_every: float,
         clock: Callable[[], float],
-        sleep: Callable[[float], Awaitable[None]],
-        last_edit_at: float,
         last_rendered: str | None,
     ) -> None:
         self.bot = bot
@@ -225,10 +221,7 @@ class ProgressEdits:
         self.progress_id = progress_id
         self.renderer = renderer
         self.started_at = started_at
-        self.progress_edit_every = progress_edit_every
         self.clock = clock
-        self.sleep = sleep
-        self.last_edit_at = last_edit_at
         self.last_rendered = last_rendered
         self.event_seq = 0
         self.rendered_seq = 0
@@ -244,13 +237,6 @@ class ProgressEdits:
                 except anyio.EndOfStream:
                     return
 
-            await self.sleep(
-                max(
-                    0.0,
-                    self.last_edit_at + self.progress_edit_every - self.clock(),
-                )
-            )
-
             seq_at_render = self.event_seq
             now = self.clock()
             parts = self.renderer.render_progress_parts(now - self.started_at)
@@ -262,15 +248,14 @@ class ProgressEdits:
                     message_id=self.progress_id,
                     rendered=rendered,
                 )
-                self.last_edit_at = now
-                edited = await self.bot.edit_message_text(
+                await self.bot.edit_message_text(
                     chat_id=self.chat_id,
                     message_id=self.progress_id,
                     text=rendered,
                     entities=entities,
+                    wait=False,
                 )
-                if edited is not None:
-                    self.last_rendered = rendered
+                self.last_rendered = rendered
 
             self.rendered_seq = seq_at_render
 
@@ -295,7 +280,6 @@ class BridgeConfig:
     chat_id: int
     final_notify: bool
     startup_msg: str
-    progress_edit_every: float = PROGRESS_EDIT_EVERY_S
 
 
 @dataclass
@@ -338,7 +322,6 @@ async def _drain_backlog(cfg: BridgeConfig, offset: int | None) -> int | None:
 @dataclass(frozen=True, slots=True)
 class ProgressMessageState:
     message_id: int | None
-    last_edit_at: float
     last_rendered: str | None
 
 
@@ -352,7 +335,6 @@ async def send_initial_progress(
     clock: Callable[[], float],
 ) -> ProgressMessageState:
     progress_id: int | None = None
-    last_edit_at = 0.0
     last_rendered: str | None = None
 
     initial_parts = renderer.render_progress_parts(0.0, label=label)
@@ -372,7 +354,6 @@ async def send_initial_progress(
     )
     if progress_msg is not None:
         progress_id = int(progress_msg["message_id"])
-        last_edit_at = clock()
         last_rendered = initial_rendered
         logger.debug(
             "progress.sent",
@@ -382,7 +363,6 @@ async def send_initial_progress(
 
     return ProgressMessageState(
         message_id=progress_id,
-        last_edit_at=last_edit_at,
         last_rendered=last_rendered,
     )
 
@@ -455,7 +435,6 @@ async def send_result_message(
     disable_notification: bool,
     edit_message_id: int | None,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
-    delete_tag: str = "final",
 ) -> None:
     final_msg, edited = await _send_or_edit_markdown(
         cfg.bot,
@@ -463,19 +442,12 @@ async def send_result_message(
         parts=parts,
         edit_message_id=edit_message_id,
         reply_to_message_id=user_msg_id,
+        replace_message_id=progress_id,
         disable_notification=disable_notification,
         prepared=prepared,
     )
     if final_msg is None:
         return
-    if progress_id is not None and (edit_message_id is None or not edited):
-        logger.debug(
-            "telegram.delete_message",
-            chat_id=chat_id,
-            message_id=progress_id,
-            tag=delete_tag,
-        )
-        await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
 
 
 async def handle_message(
@@ -491,8 +463,6 @@ async def handle_message(
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
     | None = None,
     clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-    progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
     logger.info(
         "handle.incoming",
@@ -526,10 +496,7 @@ async def handle_message(
         progress_id=progress_id,
         renderer=progress_renderer,
         started_at=started_at,
-        progress_edit_every=progress_edit_every,
         clock=clock,
-        sleep=sleep,
-        last_edit_at=progress_state.last_edit_at,
         last_rendered=progress_state.last_rendered,
     )
 
@@ -606,7 +573,6 @@ async def handle_message(
             parts=final_parts,
             disable_notification=True,
             edit_message_id=progress_id,
-            delete_tag="error",
         )
         return
 
@@ -628,7 +594,6 @@ async def handle_message(
             parts=final_parts,
             disable_notification=True,
             edit_message_id=progress_id,
-            delete_tag="cancel",
         )
         return
 
@@ -685,7 +650,6 @@ async def handle_message(
         disable_notification=False,
         edit_message_id=edit_message_id,
         prepared=(final_rendered, final_entities),
-        delete_tag="final",
     )
 
 
@@ -888,7 +852,6 @@ async def run_main_loop(
                         strip_resume_line=cfg.router.is_resume_line,
                         running_tasks=running_tasks,
                         on_thread_known=on_thread_known,
-                        progress_edit_every=cfg.progress_edit_every,
                     )
                 except Exception as exc:
                     logger.exception(
@@ -926,6 +889,9 @@ async def run_main_loop(
                 reply_id = r.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(int(reply_id))
+                    if running_task is None:
+                        await anyio.sleep(0)
+                        running_task = running_tasks.get(int(reply_id))
                     if running_task is not None:
                         tg.start_soon(
                             _send_with_resume,
