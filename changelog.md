@@ -1,5 +1,15 @@
 # changelog
 
+## v0.15.0 (2026-01-11)
+
+### changes
+
+- add telegram file transfer support [#83](https://github.com/banteg/takopi/pull/83)
+
+### docs
+
+- document telegram file transfers [#83](https://github.com/banteg/takopi/pull/83)
+
 ## v0.14.1 (2026-01-10)
 
 ### changes
