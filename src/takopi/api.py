@@ -25,6 +25,7 @@ from .model import (
     StartedEvent,
 )
 from .presenter import Presenter
+from .progress import ActionState, ProgressState, ProgressTracker
 from .router import RunnerUnavailableError
 from .runner import BaseRunner, JsonlSubprocessRunner, Runner
 from .runner_bridge import (
@@ -38,9 +39,20 @@ from .transport import MessageRef, RenderedMessage, SendOptions, Transport
 from .transport_runtime import ResolvedMessage, ResolvedRunner, TransportRuntime
 from .transports import SetupResult, TransportBackend
 
+from .config import HOME_CONFIG_PATH, read_config, write_config
+from .ids import RESERVED_COMMAND_IDS
+from .logging import bind_run_context, clear_context, get_logger, suppress_logs
+from .utils.paths import reset_run_base_dir, set_run_base_dir
+from .scheduler import ThreadJob, ThreadScheduler
+from .commands import get_command, list_command_ids
+from .engines import list_backends
+from .settings import load_settings
+from .backends_helpers import install_issue
+
 TAKOPI_PLUGIN_API_VERSION = 1
 
 __all__ = [
+    # Core types
     "Action",
     "ActionEvent",
     "BaseRunner",
@@ -60,6 +72,9 @@ __all__ = [
     "MessageRef",
     "DirectiveError",
     "Presenter",
+    "ProgressState",
+    "ProgressTracker",
+    "ActionState",
     "RenderedMessage",
     "ResumeToken",
     "RunMode",
@@ -81,4 +96,21 @@ __all__ = [
     "TransportBackend",
     "TransportRuntime",
     "handle_message",
+    "HOME_CONFIG_PATH",
+    "RESERVED_COMMAND_IDS",
+    "read_config",
+    "write_config",
+    "get_logger",
+    "bind_run_context",
+    "clear_context",
+    "suppress_logs",
+    "set_run_base_dir",
+    "reset_run_base_dir",
+    "ThreadJob",
+    "ThreadScheduler",
+    "get_command",
+    "list_command_ids",
+    "list_backends",
+    "load_settings",
+    "install_issue",
 ]

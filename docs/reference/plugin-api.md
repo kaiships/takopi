@@ -71,6 +71,7 @@ dependencies = ["takopi>=0.14,<0.15"]
 | `ResumeToken` | Resume token (engine + value) |
 | `StartedEvent` / `ActionEvent` / `CompletedEvent` | Core event types |
 | `Action` | Action metadata for `ActionEvent` |
+| `ActionState` / `ProgressState` / `ProgressTracker` | Progress tracking helpers for presenters |
 | `RunContext` | Project/branch context |
 | `ConfigError` | Configuration error type |
 | `DirectiveError` | Error raised when parsing directives |
@@ -84,6 +85,28 @@ dependencies = ["takopi>=0.14,<0.15"]
 | `IncomingMessage` | Normalized incoming message |
 | `RunningTask` / `RunningTasks` | Per-message run coordination |
 | `handle_message()` | Core message handler used by transports |
+
+### Plugin utilities
+
+| Symbol | Purpose |
+|--------|---------|
+| `HOME_CONFIG_PATH` | Canonical config path (`~/.takopi/takopi.toml`) |
+| `RESERVED_COMMAND_IDS` | Set of reserved command IDs |
+| `read_config` | Read and parse TOML config file |
+| `write_config` | Atomically write config to TOML file |
+| `get_logger` | Get a structured logger for a module |
+| `bind_run_context` | Bind contextual fields to all log entries |
+| `clear_context` | Clear bound log context |
+| `suppress_logs` | Context manager to suppress info-level logs |
+| `set_run_base_dir` | Set working directory context for path relativization |
+| `reset_run_base_dir` | Reset working directory context |
+| `ThreadJob` | Job dataclass for ThreadScheduler |
+| `ThreadScheduler` | Per-thread message serialization |
+| `get_command` | Get command backend by ID |
+| `list_command_ids` | Get available command plugin IDs |
+| `list_backends` | Discover available engine backends |
+| `load_settings` | Load full TakopiSettings from config |
+| `install_issue` | Create SetupIssue for missing dependency |
 
 ---
 
