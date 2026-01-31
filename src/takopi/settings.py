@@ -131,6 +131,38 @@ class ProjectSettings(BaseModel):
     chat_id: StrictInt | None = None
 
 
+class HeartbeatSettings(BaseModel):
+    """Settings for a scheduled heartbeat task."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    # Prompt source (exactly one required)
+    prompt: NonEmptyStr | None = None
+    prompt_file: NonEmptyStr | None = None
+
+    # Execution context
+    cwd: NonEmptyStr | None = None
+    model: NonEmptyStr | None = None
+    allowed_tools: list[NonEmptyStr] | None = None
+    dangerously_skip_permissions: bool = False
+
+    # Notification settings
+    notify: bool = True
+    notify_on_success: bool = True
+    notify_on_failure: bool = True
+
+    # Schedule (for documentation; actual scheduling via cron)
+    schedule: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def _validate_prompt_source(self) -> "HeartbeatSettings":
+        if self.prompt is None and self.prompt_file is None:
+            raise ValueError("Either 'prompt' or 'prompt_file' must be specified")
+        if self.prompt is not None and self.prompt_file is not None:
+            raise ValueError("Cannot specify both 'prompt' and 'prompt_file'")
+        return self
+
+
 class TakopiSettings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="allow",
@@ -148,6 +180,8 @@ class TakopiSettings(BaseSettings):
     transports: TransportsSettings
 
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
+
+    heartbeats: dict[str, HeartbeatSettings] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
