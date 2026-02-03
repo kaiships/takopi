@@ -1145,6 +1145,7 @@ async def run_main_loop(
                 | None = None,
                 engine_override: EngineId | None = None,
                 progress_ref: MessageRef | None = None,
+                model_override: str | None = None,
             ) -> None:
                 topic_key = (
                     (chat_id, thread_id)
@@ -1179,6 +1180,15 @@ async def run_main_loop(
                     chat_prefs=state.chat_prefs,
                     topic_store=state.topic_store,
                 )
+                # Merge model_override from auto-classification if present
+                if model_override is not None:
+                    if run_options is not None:
+                        run_options = EngineRunOptions(
+                            model=model_override,
+                            reasoning=run_options.reasoning,
+                        )
+                    else:
+                        run_options = EngineRunOptions(model=model_override)
                 await run_engine(
                     exec_cfg=cfg.exec_cfg,
                     runtime=cfg.runtime,
@@ -1267,6 +1277,7 @@ async def run_main_loop(
                 context: RunContext | None,
                 chat_id: int,
                 topic_key: tuple[int, int] | None,
+                prompt: str | None = None,
             ):
                 return await resolve_engine_for_message(
                     runtime=cfg.runtime,
@@ -1276,6 +1287,8 @@ async def run_main_loop(
                     topic_key=topic_key,
                     topic_store=state.topic_store,
                     chat_prefs=state.chat_prefs,
+                    prompt=prompt,
+                    auto_classify=cfg.auto_classify.enabled,
                 )
 
             async def ensure_topic_context(
@@ -1343,6 +1356,7 @@ async def run_main_loop(
                     context=context,
                     chat_id=chat_id,
                     topic_key=topic_key,
+                    prompt=prompt_text,
                 )
                 engine_override = engine_resolution.engine
                 resume_decision = await resume_resolver.resolve(
@@ -1371,6 +1385,8 @@ async def run_main_loop(
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        None,  # progress_ref
+                        engine_resolution.model_override,
                     )
                     return
                 progress_ref = await _send_queued_progress(
@@ -1721,6 +1737,7 @@ async def run_main_loop(
                             context=ambient_context,
                             chat_id=chat_id,
                             topic_key=topic_key,
+                            prompt=text,
                         )
                         default_engine_override = (
                             engine_resolution.engine

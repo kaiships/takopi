@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import html
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from takopi.heartbeat.executor import HeartbeatResult
-from takopi.heartbeat.notify import format_notification, send_telegram_notification
+from takopi.heartbeat.notify import (
+    TELEGRAM_MESSAGE_MAX_CHARS,
+    _split_for_html_pre,
+    format_notification,
+    format_notification_messages,
+    send_telegram_notification,
+)
 
 
 class TestFormatNotification:
@@ -157,6 +164,18 @@ class TestFormatNotification:
         # Error should be truncated to 500 chars
         assert len(message) < 600
 
+    def test_adds_ellipsis_when_summary_is_long(self) -> None:
+        result = HeartbeatResult(
+            ok=True,
+            answer="a" * 4000,
+            session_id="sess",
+            duration_ms=1000,
+            usage=None,
+            error=None,
+        )
+        message = format_notification("long-summary", result, summary_lines=1)
+        assert "…" in message
+
 
 class TestSendTelegramNotification:
     """Tests for send_telegram_notification function."""
@@ -240,3 +259,89 @@ class TestSendTelegramNotification:
         assert json_data["chat_id"] == 12345
         assert json_data["text"] == "<b>Hello</b>"
         assert json_data["parse_mode"] == "HTML"
+
+    @pytest.mark.anyio
+    async def test_disable_notification_payload(self) -> None:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"ok": True}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=mock_response)
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+
+            await send_telegram_notification(
+                bot_token="my-bot-token",
+                chat_id=12345,
+                text="hello",
+                disable_notification=True,
+            )
+
+        json_data = mock_post.call_args[1]["json"]
+        assert json_data["disable_notification"] is True
+
+
+class TestFormatNotificationMessages:
+    """Tests for format_notification_messages function."""
+
+    def test_splits_long_output_into_multiple_messages(self) -> None:
+        result = HeartbeatResult(
+            ok=True,
+            answer="'" * 5000,
+            session_id="sess",
+            duration_ms=1000,
+            usage=None,
+            error=None,
+        )
+        messages = format_notification_messages("long-output", result)
+        assert len(messages) > 2
+        assert messages[0].startswith("<b>✅")
+        for msg in messages:
+            assert len(msg) <= TELEGRAM_MESSAGE_MAX_CHARS
+
+        combined = "".join(
+            html.unescape(msg.removeprefix("<pre>").removesuffix("</pre>"))
+            for msg in messages[1:]
+        )
+        assert combined == "'" * 5000
+
+    def test_formats_duration_cost_error_and_no_summary(self) -> None:
+        result = HeartbeatResult(
+            ok=False,
+            answer="",
+            session_id="sess",
+            duration_ms=90000,
+            usage={"total_cost_usd": 0.1234},
+            error="boom",
+        )
+        messages = format_notification_messages("failed", result)
+        assert messages == [
+            "<b>❌ failed</b>\nDuration: 1m30s ($0.1234)\n<b>Error:</b> boom"
+        ]
+
+    def test_split_respects_newlines_and_escaping(self) -> None:
+        lines = ["a&<>\"'" * 200 for _ in range(10)]
+        result = HeartbeatResult(
+            ok=True,
+            answer="\n".join(lines),
+            session_id="sess",
+            duration_ms=1000,
+            usage=None,
+            error=None,
+        )
+        messages = format_notification_messages("escaped", result, summary_lines=10)
+        assert len(messages) > 2
+        assert messages[0].startswith("<b>✅")
+        for msg in messages:
+            assert len(msg) <= TELEGRAM_MESSAGE_MAX_CHARS
+        assert all(msg.startswith("<pre>") for msg in messages[1:])
+
+        combined = "".join(
+            html.unescape(msg.removeprefix("<pre>").removesuffix("</pre>"))
+            for msg in messages[1:]
+        )
+        assert combined == "\n".join(lines)
+
+    def test_split_helper_handles_empty_and_tiny_limits(self) -> None:
+        assert _split_for_html_pre("", max_escaped_chars=10) == []
+        assert _split_for_html_pre("'", max_escaped_chars=1) == ["'"]

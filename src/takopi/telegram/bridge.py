@@ -14,6 +14,7 @@ from ..context import RunContext
 from ..model import ResumeToken
 from ..scheduler import ThreadScheduler
 from ..settings import (
+    AutoClassifySettings,
     TelegramFilesSettings,
     TelegramTopicsSettings,
     TelegramTransportSettings,
@@ -132,6 +133,7 @@ class TelegramBridgeConfig:
     files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsSettings = field(default_factory=TelegramTopicsSettings)
+    auto_classify: AutoClassifySettings = field(default_factory=AutoClassifySettings)
 
 
 class TelegramTransport:

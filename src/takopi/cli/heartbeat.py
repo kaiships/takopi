@@ -50,7 +50,7 @@ def _run_heartbeat(
 ) -> None:
     """Run a specific heartbeat."""
     from ..heartbeat.executor import run_heartbeat
-    from ..heartbeat.notify import format_notification, send_telegram_notification
+    from ..heartbeat.notify import format_notification_messages, send_telegram_notification
 
     try:
         settings, config_path = load_settings()
@@ -98,12 +98,16 @@ def _run_heartbeat(
         if should_notify:
             try:
                 tg = settings.transports.telegram
-                message = format_notification(name, result)
-                await send_telegram_notification(
-                    bot_token=tg.bot_token,
-                    chat_id=tg.chat_id,
-                    text=message,
-                )
+                messages = format_notification_messages(name, result)
+                for idx, message in enumerate(messages):
+                    ok = await send_telegram_notification(
+                        bot_token=tg.bot_token,
+                        chat_id=tg.chat_id,
+                        text=message,
+                        disable_notification=True if idx > 0 else None,
+                    )
+                    if not ok:
+                        break
             except Exception as exc:
                 if not quiet:
                     typer.echo(f"[{name}] notification failed: {exc}", err=True)

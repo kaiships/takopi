@@ -3,11 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from ..classifier import ClassificationResult, classify_task
 from ..context import RunContext
+from ..logging import get_logger
 from ..model import EngineId
 from ..transport_runtime import TransportRuntime
 from .chat_prefs import ChatPrefsStore
 from .topic_state import TopicStateStore
+
+logger = get_logger(__name__)
 
 EngineSource = Literal[
     "directive",
@@ -15,6 +19,7 @@ EngineSource = Literal[
     "chat_default",
     "project_default",
     "global_default",
+    "auto_classified",
 ]
 
 
@@ -25,6 +30,8 @@ class EngineResolution:
     topic_default: EngineId | None
     chat_default: EngineId | None
     project_default: EngineId | None
+    classification: ClassificationResult | None = None
+    model_override: str | None = None
 
 
 async def resolve_engine_for_message(
@@ -36,6 +43,8 @@ async def resolve_engine_for_message(
     topic_key: tuple[int, int] | None,
     topic_store: TopicStateStore | None,
     chat_prefs: ChatPrefsStore | None,
+    prompt: str | None = None,
+    auto_classify: bool = False,
 ) -> EngineResolution:
     topic_default = None
     if topic_store is not None and topic_key is not None:
@@ -77,6 +86,28 @@ async def resolve_engine_for_message(
             chat_default=chat_default,
             project_default=project_default,
         )
+
+    # Auto-classification: when enabled and no defaults are set, classify the task
+    if auto_classify and prompt is not None:
+        classification = await classify_task(prompt, use_llm=True)
+        logger.info(
+            "auto_classify.result",
+            task_type=classification.task_type.value,
+            engine=classification.engine,
+            model=classification.model,
+            confidence=classification.confidence,
+            reason=classification.reason,
+        )
+        return EngineResolution(
+            engine=classification.engine,
+            source="auto_classified",
+            topic_default=topic_default,
+            chat_default=chat_default,
+            project_default=project_default,
+            classification=classification,
+            model_override=classification.model,
+        )
+
     return EngineResolution(
         engine=runtime.default_engine,
         source="global_default",

@@ -89,6 +89,15 @@ class TelegramFilesSettings(BaseModel):
         return value
 
 
+class AutoClassifySettings(BaseModel):
+    """Settings for automatic task classification and model routing."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    enabled: bool = False
+    use_llm: bool = True  # Use Haiku for classification; False = keyword-only
+
+
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -107,6 +116,7 @@ class TelegramTransportSettings(BaseModel):
     media_group_debounce_s: float = Field(default=1.0, ge=0)
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
+    auto_classify: AutoClassifySettings = Field(default_factory=AutoClassifySettings)
 
 
 class TransportsSettings(BaseModel):
@@ -142,6 +152,7 @@ class HeartbeatSettings(BaseModel):
 
     # Execution context
     cwd: NonEmptyStr | None = None
+    engine: NonEmptyStr | None = None  # Engine to use (claude, codex, etc.)
     model: NonEmptyStr | None = None
     allowed_tools: list[NonEmptyStr] | None = None
     dangerously_skip_permissions: bool = False
