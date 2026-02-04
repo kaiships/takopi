@@ -161,6 +161,7 @@ class HeartbeatSettings(BaseModel):
     notify: bool = True
     notify_on_success: bool = True
     notify_on_failure: bool = True
+    notify_topic_id: StrictInt | None = None  # Telegram topic for notifications
 
     # Schedule (for documentation; actual scheduling via cron)
     schedule: NonEmptyStr | None = None

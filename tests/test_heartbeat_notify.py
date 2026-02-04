@@ -329,7 +329,7 @@ class TestFormatNotificationMessages:
             usage=None,
             error=None,
         )
-        messages = format_notification_messages("escaped", result, summary_lines=10)
+        messages = format_notification_messages("escaped", result)
         assert len(messages) > 2
         assert messages[0].startswith("<b>✅")
         for msg in messages:

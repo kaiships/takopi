@@ -122,8 +122,6 @@ def format_notification(
 def format_notification_messages(
     name: str,
     result: HeartbeatResult,
-    *,
-    summary_lines: int = 10,
 ) -> list[str]:
     """Format heartbeat result into one or more Telegram-sized HTML messages."""
     status_emoji = "\u2705" if result.ok else "\u274c"  # check mark / X
@@ -154,7 +152,8 @@ def format_notification_messages(
 
     messages = ["\n".join(parts)]
 
-    summary = _extract_summary(result.answer, summary_lines=summary_lines)
+    # Use full answer - chunking handles length limits
+    summary = result.answer.strip() if result.answer else ""
     if summary:
         max_escaped_chars = TELEGRAM_MESSAGE_MAX_CHARS - _PRE_OVERHEAD_CHARS
         messages.extend(
@@ -174,6 +173,7 @@ async def send_telegram_notification(
     bot_token: str,
     chat_id: int,
     text: str,
+    message_thread_id: int | None = None,
     disable_notification: bool | None = None,
 ) -> bool:
     """Send notification via Telegram API."""
@@ -185,6 +185,8 @@ async def send_telegram_notification(
                 "parse_mode": "HTML",
                 "link_preview_options": {"is_disabled": True},
             }
+            if message_thread_id is not None:
+                payload["message_thread_id"] = message_thread_id
             if disable_notification is not None:
                 payload["disable_notification"] = disable_notification
 
@@ -197,7 +199,7 @@ async def send_telegram_notification(
             data = resp.json()
             ok = data.get("ok", False)
             if ok:
-                logger.info("heartbeat.notify.sent", chat_id=chat_id)
+                logger.info("heartbeat.notify.sent", chat_id=chat_id, topic_id=message_thread_id)
             else:
                 logger.warning(
                     "heartbeat.notify.failed",

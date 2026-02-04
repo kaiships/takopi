@@ -104,6 +104,7 @@ def _run_heartbeat(
                         bot_token=tg.bot_token,
                         chat_id=tg.chat_id,
                         text=message,
+                        message_thread_id=hb_settings.notify_topic_id,
                         disable_notification=True if idx > 0 else None,
                     )
                     if not ok:
