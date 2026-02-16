@@ -24,6 +24,12 @@ from .config import _config_path_display, _fail_missing_config
 
 logger = get_logger(__name__)
 
+_CONFIG_PATH_OPTION = typer.Option(
+    None,
+    "--config-path",
+    help="Override the default config path.",
+)
+
 
 def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
     try:
@@ -329,6 +335,7 @@ def _version_callback(value: bool) -> None:
 
 def app_main(
     ctx: typer.Context,
+    config_path: Path | None = _CONFIG_PATH_OPTION,
     version: bool = typer.Option(
         False,
         "--version",
@@ -358,6 +365,11 @@ def app_main(
     ),
 ) -> None:
     """Takopi CLI."""
+    if config_path is not None:
+        from ..config import set_config_path_override
+
+        previous = set_config_path_override(config_path)
+        ctx.call_on_close(lambda: set_config_path_override(previous))
     if ctx.invoked_subcommand is None:
         run_auto_router = cast(
             Callable[..., None],

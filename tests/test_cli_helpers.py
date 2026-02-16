@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from takopi import cli
+from takopi.cli import run as cli_run
 from takopi.config import ConfigError
 from takopi.lockfile import LockError
 from takopi.settings import TakopiSettings
@@ -96,6 +99,45 @@ def test_resolve_transport_id_override(monkeypatch) -> None:
     assert cli._resolve_transport_id(None) == "telegram"
 
 
+def test_resolve_transport_id_uses_config(monkeypatch) -> None:
+    monkeypatch.setattr(
+        cli,
+        "load_or_init_config",
+        lambda: ({"transport": "wire"}, Path("takopi.toml")),
+    )
+    assert cli._resolve_transport_id(None) == "wire"
+
+
+def test_default_engine_for_setup() -> None:
+    assert (
+        cli._default_engine_for_setup(
+            "claude",
+            settings=None,
+            config_path=None,
+        )
+        == "claude"
+    )
+
+    assert (
+        cli._default_engine_for_setup(
+            None,
+            settings=None,
+            config_path=None,
+        )
+        == "codex"
+    )
+
+    settings = _settings({"default_engine": "opencode"})
+    assert (
+        cli._default_engine_for_setup(
+            None,
+            settings=settings,
+            config_path=Path("takopi.toml"),
+        )
+        == "opencode"
+    )
+
+
 def test_doctor_file_checks() -> None:
     settings = _settings()
     checks = cli._doctor_file_checks(settings)
@@ -172,6 +214,24 @@ def test_load_settings_optional(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
     monkeypatch.setattr(cli, "load_settings_if_exists", lambda: (settings, config_path))
     assert cli._load_settings_optional() == (settings, config_path)
+
+
+def test_run_load_settings_optional(monkeypatch, tmp_path) -> None:
+    def _raise() -> None:
+        raise ConfigError("boom")
+
+    monkeypatch.setattr(cli_run, "load_settings_if_exists", _raise)
+    assert cli_run._load_settings_optional() == (None, None)
+
+    monkeypatch.setattr(cli_run, "load_settings_if_exists", lambda: None)
+    assert cli_run._load_settings_optional() == (None, None)
+
+    settings = _settings()
+    config_path = tmp_path / "takopi.toml"
+    monkeypatch.setattr(
+        cli_run, "load_settings_if_exists", lambda: (settings, config_path)
+    )
+    assert cli_run._load_settings_optional() == (settings, config_path)
 
 
 def test_acquire_config_lock_reports_error(monkeypatch, tmp_path) -> None:

@@ -75,6 +75,12 @@ Takopi’s CLI is an auto-router by default; engine subcommands override the def
 | Flag | Description |
 |------|-------------|
 | `--onboard` | Force the interactive setup wizard before starting. |
+| `--config-path <path>` | Use a different `takopi.toml` (default `~/.takopi/takopi.toml`). |
 | `--transport <id>` | Override the configured transport backend id. |
 | `--debug` | Write debug logs to `debug.log`. |
 | `--final-notify/--no-final-notify` | Send the final response as a new message vs an edit. |
+
+Notes:
+
+- Global flags must come before subcommands, for example: `takopi --config-path ./takopi.toml config list`.
+- If `--config-path` is provided both globally and on a subcommand, the subcommand value wins.

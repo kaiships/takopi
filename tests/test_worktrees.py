@@ -159,9 +159,11 @@ class TestEnsureWorktree:
     ) -> None:
         worktree_path = project.worktrees_root / "feature"
         worktree_path.mkdir(parents=True)
-        with patch("takopi.worktrees.git_is_worktree", return_value=False):
-            with pytest.raises(WorktreeError, match="not a git worktree"):
-                ensure_worktree(project, "feature")
+        with (
+            patch("takopi.worktrees.git_is_worktree", return_value=False),
+            pytest.raises(WorktreeError, match="not a git worktree"),
+        ):
+            ensure_worktree(project, "feature")
 
     def test_creates_from_local_branch(
         self, project: ProjectConfig, tmp_path: Path
@@ -183,6 +185,7 @@ class TestEnsureWorktree:
         ):
             result = ensure_worktree(project, "feature")
         mock_add.assert_called_once()
+        assert result == project.worktrees_root / "feature"
         # Should have create_branch=True for remote
         call_kwargs = mock_add.call_args[1]
         assert call_kwargs["create_branch"] is True
@@ -196,6 +199,7 @@ class TestEnsureWorktree:
         ):
             result = ensure_worktree(project, "feature")
         mock_add.assert_called_once()
+        assert result == project.worktrees_root / "feature"
         call_kwargs = mock_add.call_args[1]
         assert call_kwargs["base_ref"] == "main"
         assert call_kwargs["create_branch"] is True
@@ -206,9 +210,9 @@ class TestEnsureWorktree:
         with (
             patch("takopi.worktrees.git_ok", return_value=False),
             patch("takopi.worktrees.resolve_default_base", return_value=None),
+            pytest.raises(WorktreeError, match="cannot determine base"),
         ):
-            with pytest.raises(WorktreeError, match="cannot determine base"):
-                ensure_worktree(project, "feature")
+            ensure_worktree(project, "feature")
 
 
 class TestGitWorktreeAdd:
@@ -259,9 +263,11 @@ class TestGitWorktreeAdd:
     def test_git_not_available(self, tmp_path: Path) -> None:
         from takopi.worktrees import _git_worktree_add
 
-        with patch("takopi.worktrees.git_run", return_value=None):
-            with pytest.raises(WorktreeError, match="git not available"):
-                _git_worktree_add(tmp_path, tmp_path / "worktree", "feature")
+        with (
+            patch("takopi.worktrees.git_run", return_value=None),
+            pytest.raises(WorktreeError, match="git not available"),
+        ):
+            _git_worktree_add(tmp_path, tmp_path / "worktree", "feature")
 
     def test_git_failure(self, tmp_path: Path) -> None:
         from takopi.worktrees import _git_worktree_add
@@ -270,6 +276,8 @@ class TestGitWorktreeAdd:
         mock_result.returncode = 1
         mock_result.stderr = "fatal: branch already exists"
         mock_result.stdout = ""
-        with patch("takopi.worktrees.git_run", return_value=mock_result):
-            with pytest.raises(WorktreeError, match="branch already exists"):
-                _git_worktree_add(tmp_path, tmp_path / "worktree", "feature")
+        with (
+            patch("takopi.worktrees.git_run", return_value=mock_result),
+            pytest.raises(WorktreeError, match="branch already exists"),
+        ):
+            _git_worktree_add(tmp_path, tmp_path / "worktree", "feature")

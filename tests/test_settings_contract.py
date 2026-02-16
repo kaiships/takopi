@@ -89,7 +89,9 @@ class TestHeartbeatSettings:
 
     def test_rejects_extra_fields(self) -> None:
         with pytest.raises(ValueError, match="extra"):
-            HeartbeatSettings(prompt="test", unknown_field="value")
+            HeartbeatSettings.model_validate(
+                {"prompt": "test", "unknown_field": "value"}
+            )
 
 
 class TestHeartbeatsInSettings:

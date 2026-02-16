@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from takopi.heartbeat.state import (
-    HEARTBEAT_STATE_DIR,
     HeartbeatRun,
     HeartbeatState,
     load_state,
@@ -135,7 +134,9 @@ class TestSaveState:
 
     def test_trims_runs_to_max(self, temp_heartbeat_dir: Path) -> None:
         # Create state with more runs than max
-        runs = [HeartbeatRun(started_at=f"2026-02-01T{i:02d}:00:00Z") for i in range(60)]
+        runs = [
+            HeartbeatRun(started_at=f"2026-02-01T{i:02d}:00:00Z") for i in range(60)
+        ]
         state = HeartbeatState(name="trim-test", runs=runs, max_runs=50)
         save_state(state)
 

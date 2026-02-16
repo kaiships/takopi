@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from takopi.cli.heartbeat import app
-
 
 runner = CliRunner()
 

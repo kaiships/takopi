@@ -2,6 +2,15 @@
 
 Takopi reads configuration from `~/.takopi/takopi.toml`.
 
+To use a different config file for a single invocation, pass `--config-path`:
+
+```sh
+takopi --config-path ./takopi.toml
+```
+
+!!! warning "Lockfile is per config file"
+    Takopi’s lock file is stored at `<config_path>.lock`. If you run two Takopi processes with the same Telegram bot token but different `--config-path` values, they won’t share a lock and can race `getUpdates`.
+
 If you expect to edit config while Takopi is running, set:
 
 === "takopi config"

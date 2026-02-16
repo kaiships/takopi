@@ -86,7 +86,7 @@ async def _send_message_get_id(
             if data.get("ok"):
                 return data["result"]["message_id"]
             return None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error("send.error", error=str(exc))
             return None
 
@@ -107,7 +107,7 @@ async def _answer_callback_query(
                 json=payload,
                 timeout=10.0,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.debug("answer_callback.error", error=str(exc))
 
 
@@ -130,7 +130,7 @@ async def _edit_message_remove_buttons(
                 },
                 timeout=10.0,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.debug("edit_message.error", error=str(exc))
 
 
@@ -199,7 +199,9 @@ async def _poll_for_reply(
                             await _answer_callback_query(bot_token, cb.id)
                             # Edit message to show selection and remove buttons
                             if original_text and cb.data:
-                                new_text = f"{original_text}\n\n<i>Selected: {cb.data}</i>"
+                                new_text = (
+                                    f"{original_text}\n\n<i>Selected: {cb.data}</i>"
+                                )
                                 await _edit_message_remove_buttons(
                                     bot_token, chat_id, message_id, new_text
                                 )
@@ -217,7 +219,7 @@ async def _poll_for_reply(
 
             except httpx.TimeoutException:
                 continue
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.error("poll.error", error=str(exc))
                 await anyio.sleep(2)
 

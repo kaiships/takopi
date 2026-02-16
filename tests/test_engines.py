@@ -76,9 +76,11 @@ class TestListBackends:
     """Tests for list_backends function."""
 
     def test_no_backends_raises(self) -> None:
-        with patch("takopi.engines.list_backend_ids", return_value=[]):
-            with pytest.raises(ConfigError, match="No engine backends"):
-                list_backends()
+        with (
+            patch("takopi.engines.list_backend_ids", return_value=[]),
+            pytest.raises(ConfigError, match="No engine backends"),
+        ):
+            list_backends()
 
     def test_filters_config_errors(self) -> None:
         from takopi.backends import EngineBackend
@@ -110,8 +112,13 @@ class TestListBackends:
         backends_map = {"engine1": mock_backend1, "engine2": mock_backend2}
 
         with (
-            patch("takopi.engines.list_backend_ids", return_value=["engine1", "engine2"]),
-            patch("takopi.engines.get_backend", side_effect=lambda eid, **kw: backends_map[eid]),
+            patch(
+                "takopi.engines.list_backend_ids", return_value=["engine1", "engine2"]
+            ),
+            patch(
+                "takopi.engines.get_backend",
+                side_effect=lambda eid, **kw: backends_map[eid],
+            ),
         ):
             backends = list_backends()
 
@@ -139,6 +146,6 @@ class TestListBackendIds:
 
     def test_passes_allowlist(self) -> None:
         with patch("takopi.engines.list_ids", return_value=["allowed"]) as mock_list:
-            result = list_backend_ids(allowlist=["allowed"])
+            list_backend_ids(allowlist=["allowed"])
 
         assert mock_list.call_args[1]["allowlist"] == ["allowed"]

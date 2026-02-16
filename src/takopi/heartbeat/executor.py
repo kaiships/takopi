@@ -7,7 +7,7 @@ import re
 import shutil
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +117,7 @@ async def run_heartbeat(
 
     # Track timing
     start_time = time.monotonic()
-    started_at = datetime.now(timezone.utc).isoformat()
+    started_at = datetime.now(UTC).isoformat()
 
     # Collect events
     session_id: str | None = state.session_id
@@ -143,7 +143,7 @@ async def run_heartbeat(
                 usage = event.usage
                 if event.resume:
                     session_id = event.resume.value
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         error = str(exc)
         ok = False
         logger.error("heartbeat.error", name=name, error=error)
@@ -152,7 +152,7 @@ async def run_heartbeat(
         os.chdir(original_cwd)
 
     duration_ms = int((time.monotonic() - start_time) * 1000)
-    completed_at = datetime.now(timezone.utc).isoformat()
+    completed_at = datetime.now(UTC).isoformat()
 
     logger.info(
         "heartbeat.completed",

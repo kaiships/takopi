@@ -199,7 +199,9 @@ async def send_telegram_notification(
             data = resp.json()
             ok = data.get("ok", False)
             if ok:
-                logger.info("heartbeat.notify.sent", chat_id=chat_id, topic_id=message_thread_id)
+                logger.info(
+                    "heartbeat.notify.sent", chat_id=chat_id, topic_id=message_thread_id
+                )
             else:
                 logger.warning(
                     "heartbeat.notify.failed",
@@ -207,6 +209,6 @@ async def send_telegram_notification(
                     error=data.get("description"),
                 )
             return ok
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error("heartbeat.notify.error", error=str(exc))
             return False

@@ -14,7 +14,6 @@ from takopi.config import (
     ensure_table,
     load_or_init_config,
     read_config,
-    write_config,
 )
 
 
@@ -39,7 +38,7 @@ class TestEnsureTable:
 
     def test_uses_label_in_error(self, tmp_path: Path) -> None:
         config: dict = {"key": "value"}
-        with pytest.raises(ConfigError, match="custom.label"):
+        with pytest.raises(ConfigError, match=r"custom\.label"):
             ensure_table(
                 config, "key", config_path=tmp_path / "test.toml", label="custom.label"
             )

@@ -212,16 +212,56 @@ def test_config_path_cmd_outputs_override(tmp_path: Path) -> None:
     assert result.output.strip() == str(config_path)
 
 
+def test_version_flag_prints_version() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli.create_app(), ["--version"])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == cli.__version__
+
+
 def test_config_path_cmd_defaults_to_home(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     config_path = tmp_path / ".takopi" / "takopi.toml"
-    monkeypatch.setattr(cli, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr("takopi.config.HOME_CONFIG_PATH", config_path)
 
     runner = CliRunner()
     result = runner.invoke(cli.create_app(), ["config", "path"])
 
     assert result.exit_code == 0
     assert result.output.strip() == "~/.takopi/takopi.toml"
+
+
+def test_config_path_cmd_uses_global_config_path(tmp_path: Path) -> None:
+    config_path = tmp_path / "alt.toml"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.create_app(),
+        ["--config-path", str(config_path), "config", "path"],
+    )
+
+    assert result.exit_code == 0
+    assert result.output.strip() == str(config_path)
+
+
+def test_config_path_cmd_prefers_subcommand_override(tmp_path: Path) -> None:
+    global_path = tmp_path / "global.toml"
+    local_path = tmp_path / "local.toml"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.create_app(),
+        [
+            "--config-path",
+            str(global_path),
+            "config",
+            "path",
+            "--config-path",
+            str(local_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert result.output.strip() == str(local_path)
 
 
 def test_doctor_rejects_non_telegram_transport(monkeypatch) -> None:
@@ -238,3 +278,15 @@ def test_doctor_rejects_non_telegram_transport(monkeypatch) -> None:
 
     assert result.exit_code == 1
     assert "telegram transport only" in result.output
+
+
+def test_doctor_uses_global_config_path(tmp_path: Path) -> None:
+    config_path = tmp_path / "missing.toml"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.create_app(),
+        ["--config-path", str(config_path), "doctor"],
+    )
+
+    assert result.exit_code == 1
+    assert str(config_path) in result.output

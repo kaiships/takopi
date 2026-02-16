@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -104,7 +104,9 @@ class TestLoadPrompt:
         with pytest.raises(FileNotFoundError, match="Prompt file not found"):
             load_prompt(settings)
 
-    def test_file_prompt_expands_tilde(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_file_prompt_expands_tilde(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # Create a temp file and reference it with ~
         prompt_file = tmp_path / "prompt.md"
         prompt_file.write_text("Tilde test")

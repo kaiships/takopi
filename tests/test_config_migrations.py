@@ -135,7 +135,9 @@ class TestMigrateTopicsScope:
             _migrate_topics_scope(config, config_path=tmp_path / "config.toml")
 
     def test_invalid_mode_value_raises(self, tmp_path: Path) -> None:
-        config: dict = {"transports": {"telegram": {"topics": {"mode": "unknown_mode"}}}}
+        config: dict = {
+            "transports": {"telegram": {"topics": {"mode": "unknown_mode"}}}
+        }
         with pytest.raises(ConfigError, match="expected 'multi_project_chat'"):
             _migrate_topics_scope(config, config_path=tmp_path / "config.toml")
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import signal
 from unittest.mock import MagicMock, patch
 
@@ -176,15 +175,14 @@ class TestManageSubprocess:
     @pytest.mark.anyio
     async def test_posix_new_session(self) -> None:
         """Test that start_new_session is set on POSIX."""
-        with patch("os.name", "posix"):
-            with patch("anyio.open_process") as mock_open:
-                mock_proc = MagicMock()
-                mock_proc.returncode = 0  # Already finished
-                mock_open.return_value = mock_proc
+        with patch("os.name", "posix"), patch("anyio.open_process") as mock_open:
+            mock_proc = MagicMock()
+            mock_proc.returncode = 0  # Already finished
+            mock_open.return_value = mock_proc
 
-                async with manage_subprocess(["echo", "test"]):
-                    pass
+            async with manage_subprocess(["echo", "test"]):
+                pass
 
-                # Check that start_new_session was passed
-                call_kwargs = mock_open.call_args[1]
-                assert call_kwargs.get("start_new_session") is True
+            # Check that start_new_session was passed
+            call_kwargs = mock_open.call_args[1]
+            assert call_kwargs.get("start_new_session") is True

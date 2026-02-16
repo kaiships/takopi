@@ -50,7 +50,10 @@ def _run_heartbeat(
 ) -> None:
     """Run a specific heartbeat."""
     from ..heartbeat.executor import run_heartbeat
-    from ..heartbeat.notify import format_notification_messages, send_telegram_notification
+    from ..heartbeat.notify import (
+        format_notification_messages,
+        send_telegram_notification,
+    )
 
     try:
         settings, config_path = load_settings()
@@ -109,14 +112,14 @@ def _run_heartbeat(
                     )
                     if not ok:
                         break
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 if not quiet:
                     typer.echo(f"[{name}] notification failed: {exc}", err=True)
 
         return 0 if result.ok else 1
 
     exit_code = anyio.run(_run)
-    raise typer.Exit(code=exit_code)
+    raise typer.Exit(code=exit_code if exit_code is not None else 0)
 
 
 @app.callback(invoke_without_command=True)

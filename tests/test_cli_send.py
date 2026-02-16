@@ -1,7 +1,5 @@
 """Tests for the send CLI command."""
 
-import pytest
-
 from takopi.cli.send import _parse_buttons
 
 

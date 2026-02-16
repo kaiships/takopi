@@ -19,9 +19,9 @@ from pydantic_settings.sources import TomlConfigSettingsSource
 
 from .config import (
     ConfigError,
-    HOME_CONFIG_PATH,
     ProjectConfig,
     ProjectsConfig,
+    resolve_config_path,
 )
 from .config_migrations import migrate_config_file
 
@@ -167,7 +167,7 @@ class HeartbeatSettings(BaseModel):
     schedule: NonEmptyStr | None = None
 
     @model_validator(mode="after")
-    def _validate_prompt_source(self) -> "HeartbeatSettings":
+    def _validate_prompt_source(self) -> HeartbeatSettings:
         if self.prompt is None and self.prompt_file is None:
             raise ValueError("Either 'prompt' or 'prompt_file' must be specified")
         if self.prompt is not None and self.prompt_file is not None:
@@ -373,7 +373,7 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
 
 
 def _resolve_config_path(path: str | Path | None) -> Path:
-    return Path(path).expanduser() if path else HOME_CONFIG_PATH
+    return resolve_config_path(path)
 
 
 def _ensure_config_file(cfg_path: Path) -> None:
