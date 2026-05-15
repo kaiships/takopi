@@ -1,5 +1,18 @@
 # changelog
 
+## v0.23.0 (2026-05-15)
+
+### changes
+
+- use `codex app-server` by default, enabling app-server commentary rendering and turn controls while keeping `codex.mode = "exec"` for the legacy `codex exec --json` runner [#236](https://github.com/banteg/takopi/pull/236)
+- add Telegram `steer` / `cancel` buttons for queued Codex continuations when an active turn can accept steering [#236](https://github.com/banteg/takopi/pull/236)
+
+### fixes
+
+- keep busy queued jobs addressable until they actually start, so steer/cancel callbacks still work while a thread is occupied [#236](https://github.com/banteg/takopi/pull/236)
+- prevent steered queued prompts from also running later as duplicate turns [#236](https://github.com/banteg/takopi/pull/236)
+- surface Codex app-server shutdown during active turns as a rendered runner error instead of a silent missing-completion failure [#236](https://github.com/banteg/takopi/pull/236)
+
 ## v0.22.4 (2026-05-15)
 
 ### fixes
