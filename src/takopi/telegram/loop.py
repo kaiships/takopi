@@ -24,8 +24,17 @@ from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
-from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
-from .commands.cancel import handle_callback_cancel, handle_cancel
+from .bridge import (
+    CANCEL_CALLBACK_DATA,
+    STEER_CALLBACK_DATA,
+    TelegramBridgeConfig,
+    send_plain,
+)
+from .commands.cancel import (
+    handle_callback_cancel,
+    handle_callback_steer,
+    handle_cancel,
+)
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
     dispatch_command,
@@ -861,6 +870,7 @@ async def _send_queued_progress(
     thread_id: int | None,
     resume_token: ResumeToken,
     context: RunContext | None,
+    steerable: bool,
 ) -> MessageRef | None:
     tracker = ProgressTracker(engine=resume_token.engine)
     tracker.set_resume(resume_token)
@@ -882,7 +892,7 @@ async def _send_queued_progress(
     message = cfg.exec_cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
-        label="queued",
+        label="queued" if steerable else "starting",
     )
     reply_ref = MessageRef(
         channel_id=chat_id,
@@ -939,6 +949,7 @@ async def send_with_resume(
         thread_id=thread_id,
         resume_token=resume,
         context=running_task.context,
+        steerable=not running_task.done.is_set(),
     )
     await enqueue(
         chat_id,
@@ -1393,6 +1404,7 @@ async def run_main_loop(
                     thread_id=msg.thread_id,
                     resume_token=resume_token,
                     context=context,
+                    steerable=await scheduler.is_busy(resume_token),
                 )
                 await scheduler.enqueue_resume(
                     chat_id,
@@ -1847,6 +1859,14 @@ async def run_main_loop(
                     if update.data == CANCEL_CALLBACK_DATA:
                         tg.start_soon(
                             handle_callback_cancel,
+                            cfg,
+                            update,
+                            state.running_tasks,
+                            scheduler,
+                        )
+                    elif update.data == STEER_CALLBACK_DATA:
+                        tg.start_soon(
+                            handle_callback_steer,
                             cfg,
                             update,
                             state.running_tasks,
